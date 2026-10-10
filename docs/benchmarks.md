@@ -10,11 +10,11 @@ The seeded generator (`scripts/workload.ts`, seed 2025) produces 100, 1,000 and 
 
 Two warm-ups and five measured runs **per size**; latency encloses the same `analyze()` used by the API, excluding workload generation, assertions and JSON serialization. Market API, model, network, HTTP and browser latency are excluded. Median is the third sorted sample; p95 is nearest-rank and, with five runs, is simply the slowest run. This is a small sample, not a tail-latency guarantee. Timing runs were made after the production checks, with the development server idle; no build was running concurrently.
 
-| Messages | Median ms | p95 ms | Messages / second (median) | Process peak RSS MiB |
-| ---: | ---: | ---: | ---: | ---: |
-| 410 | 10.257 | 13.323 | 39,972 | 92.3 |
-| 4,100 | 90.375 | 101.072 | 45,367 | 255.9 |
-| 20,500 | 439.302 | 505.499 | 46,665 | 557.7 |
+| Messages | Median ms |  p95 ms | Messages / second (median) | Process peak RSS MiB |
+| -------: | --------: | ------: | -------------------------: | -------------------: |
+|      410 |    10.257 |  13.323 |                     39,972 |                 92.3 |
+|    4,100 |    90.375 | 101.072 |                     45,367 |                255.9 |
+|   20,500 |   439.302 | 505.499 |                     46,665 |                557.7 |
 
 [Raw results](benchmark-results.json) preserve every run, input sizes, input digests, exact runtime and resource metadata. RSS is for the entire benchmark process (including generated logs, retained objects and GC behavior), and the peak is cumulative across sizes, **not** isolated per-request allocation. No forced GC is used. Workloads beyond the HTTP input cap exercise standalone scaling only; they are not accepted as one application request.
 

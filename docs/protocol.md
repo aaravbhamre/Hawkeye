@@ -4,15 +4,15 @@
 
 FIX **4.4** only. Enum meanings were checked against [QuickFIX's FIX44.xml](https://github.com/quickfix/quickfix/blob/master/spec/FIX44.xml), not inferred from old FIX versions.
 
-| Message | Supported interpretation |
-| --- | --- |
-| `35=D` | New Order Single; buy `54=1` / sell `54=2`; market `40=1` or limit `40=2` (requires Price 44) |
-| `35=8,150=0,39=0` | New acknowledgment |
-| `35=8,150=F,39=1` | Trade leaving the order partially filled |
-| `35=8,150=F,39=2` | Trade completing the order |
-| `35=8,150=4,39=4` | Confirmed cancellation |
-| `35=8,150=8,39=8` | Rejection |
-| `35=F` | Cancel request; **does not cancel the order** |
+| Message           | Supported interpretation                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `35=D`            | New Order Single; buy `54=1` / sell `54=2`; market `40=1` or limit `40=2` (requires Price 44) |
+| `35=8,150=0,39=0` | New acknowledgment                                                                            |
+| `35=8,150=F,39=1` | Trade leaving the order partially filled                                                      |
+| `35=8,150=F,39=2` | Trade completing the order                                                                    |
+| `35=8,150=4,39=4` | Confirmed cancellation                                                                        |
+| `35=8,150=8,39=8` | Rejection                                                                                     |
+| `35=F`            | Cancel request; **does not cancel the order**                                                 |
 
 FIX 4.4 uses `ExecType=F` for a trade, with OrdStatus indicating partial/full. Corrections (`150=G`), trade cancels/busts (`150=H`), replacements, cancel rejects, pending states, status-only reports and other message types are unsupported findings, not silently applied. Non-trade reports may carry zero LastQty/LastPx; only a supported Trade contributes fills.
 

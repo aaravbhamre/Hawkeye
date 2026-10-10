@@ -13,16 +13,18 @@ npm install
 npm run dev
 ```
 
+In this Codex cloud environment, run `export NODE_USE_ENV_PROXY=1` before starting Node so external HTTP requests use the configured proxy. The saved cloud startup instructions include this setting; ordinary Vercel deployments do not require a proxy.
+
 No credentials are needed for analysis, fault injection, source inspection, synthetic market comparisons, or JSON export. The npm cache lives in the ignored `.npm-cache/` directory so installation works in the cloud workspace.
 
 For external services, copy `.env.example` to `.env.local` and enter values locally or in secure environment settings. `.env.local` and all other `.env*` files except the empty example are ignored. Never use `NEXT_PUBLIC_` for credentials.
 
-| Variable | Purpose |
-| --- | --- |
-| `ALPACA_API_KEY`, `ALPACA_API_SECRET` | Server-only Alpaca historical IEX data |
-| `AI_GATEWAY_API_KEY` | Server-only Vercel AI Gateway authentication |
-| `AI_MODEL` | Defaults to `openai/gpt-4.1-mini` (listed in the live Gateway catalog during implementation) |
-| `INVESTIGATOR_ACCESS_TOKEN` | Private random access code, 32–256 characters, required to enable paid AI |
+| Variable                              | Purpose                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `ALPACA_API_KEY`, `ALPACA_API_SECRET` | Server-only Alpaca historical IEX data                                                       |
+| `AI_GATEWAY_API_KEY`                  | Server-only Vercel AI Gateway authentication                                                 |
+| `AI_MODEL`                            | Defaults to `openai/gpt-4.1-mini` (listed in the live Gateway catalog during implementation) |
+| `INVESTIGATOR_ACCESS_TOKEN`           | Private random access code, 32–256 characters, required to enable paid AI                    |
 
 Keep the investigator code private; trusted demo operators enter it in the dashboard. It is held in browser memory and sent over HTTPS only when asking AI. Generate it using a password manager or `openssl rand -hex 32`; set the same value in the server environment. Do not commit it or share it publicly. Restart development after changing environment variables.
 

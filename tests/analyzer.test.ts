@@ -2,25 +2,196 @@ import { describe, expect, it } from "vitest";
 import { analyze } from "@/lib/fix/report";
 import { decimal, format } from "@/lib/fix/decimal";
 import { injectFault, lifecycle, samples } from "@/lib/fixtures";
-const fixture = (id: string) => samples.find(s => s.id === id)!.text;
+const fixture = (id: string) => samples.find((s) => s.id === id)!.text;
 describe("authoritative FIX reconstruction", () => {
-  it("reconciles hand-calculated complete histories", () => { const r = analyze(fixture("clean")); expect(r.summary).toMatchObject({ observedFilledQty: "150", uniqueFills: 4, unresolvedOrders: 0 }); expect(r.orders.find(o => o.symbol === "AAPL")).toMatchObject({ filledQty: "100", averagePrice: "190.6", status: "Filled" }); expect(r.orders.find(o => o.symbol === "MSFT")).toMatchObject({ filledQty: "50", averagePrice: "419.4" }); });
-  it("does not count identical execution deliveries twice", () => { const r = analyze(fixture("duplicate")); expect(r.summary).toMatchObject({ observedFilledQty: "150", uniqueFills: 4, duplicateDeliveries: 1, unresolvedOrders: 0 }); expect(r.sources).toHaveLength(9); });
-  it("recognizes retransmissions with new transport headers and canonical decimals", () => { const lines = lifecycle(); const repeat = lines[2].replace("34=2|", "34=20|43=Y|122=20250115-15:31:10.000|").replace("52=20250115-15:31:10.000", "52=20250115-15:35:00.000").replace("32=40|", "32=40.000|"); const r = analyze([...lines, repeat].join("\n")); expect(r.summary.duplicateDeliveries).toBe(1); expect(r.orders[0].filledQty).toBe("100"); });
-  it("does not collapse different ExecIDs with equal fill sizes and prices", () => { const r = analyze(lifecycle("EQUAL", "DEMO", "AAPL", "1", "100", "50", "190", "190", "190").join("\n")); expect(r.summary.uniqueFills).toBe(2); expect(r.orders[0].filledQty).toBe("100"); expect(r.summary.unresolvedOrders).toBe(0); });
-  it("scopes order and execution IDs to session", () => { const r = analyze(fixture("sessions")); expect(r.summary).toMatchObject({ orders: 2, observedFilledQty: "200", duplicateDeliveries: 0 }); });
-  it("produces byte-identical reports on deterministic replay", () => { expect(JSON.stringify(analyze(fixture("conflict"), "test.fix"))).toBe(JSON.stringify(analyze(fixture("conflict"), "test.fix"))); });
-  it.each(["missing-ack", "missing-request"])("keeps %s unresolved", id => { const r = analyze(fixture(id)); expect(r.summary.unresolvedOrders).toBeGreaterThan(0); expect(r.orders.every(o => o.reconciliation === "unresolved")).toBe(true); });
-  it("does not mark cancel requests as cancellations", () => { const text = fixture("cancel"); const pending = analyze(text.split("\n").slice(0, -1).join("\n")); expect(pending.orders[0].status).toContain("Partially filled"); expect(pending.findings.some(f => f.code === "CANCEL_PENDING")).toBe(true); const confirmed = analyze(text); expect(confirmed.orders[0]).toMatchObject({ status: "Canceled", filledQty: "40", reportedLeavesQty: "0", reconciliation: "reconciled" }); });
-  it("preserves conflicting cumulative evidence without inventing fills", () => { const r = analyze(fixture("conflict")); expect(r.orders[0]).toMatchObject({ filledQty: "100", reportedCumQty: "110", reconciliation: "unresolved" }); expect(r.findings.some(f => f.code === "CUM_QTY_MISMATCH")).toBe(true); });
-  it("excludes all versions of a disputed ExecID rather than picking a winner", () => { const lines = lifecycle(); const r = analyze([...lines, lines[2].replace("31=190|", "31=189|")].join("\n")); expect(r.orders[0].filledQty).toBe("60"); expect(r.findings.some(f => f.code === "CONFLICTING_EXECUTION")).toBe(true); });
-  it("keeps economic results after shuffled delivery when ordering evidence suffices", () => { const a = analyze(fixture("clean")), b = analyze(injectFault(fixture("clean"), "shuffle")); expect(b.summary).toEqual(a.summary); expect(b.orders.map(o => [o.id, o.filledQty, o.averagePrice, o.status])).toEqual(a.orders.map(o => [o.id, o.filledQty, o.averagePrice, o.status])); expect(b.orders.flatMap(o => o.events.map(e => e.sourceId))).toEqual(a.orders.flatMap(o => o.events.map(e => e.sourceId))); });
-  it("surfaces ambiguous cross-direction timing", () => { const text = lifecycle().join("\n").replaceAll("15:30:00.020", "15:30:00.000"); expect(analyze(text).findings.some(f => f.code === "AMBIGUOUS_ORDERING")).toBe(true); });
-  it("surfaces reused sender sequence numbers", () => { const r = analyze(lifecycle().join("\n").replace("34=3|", "34=2|")); expect(r.findings.some(f => f.code === "SEQUENCE_REUSE")).toBe(true); });
-  it("uses same-sender sequence for equal timestamps", () => { const text = lifecycle().join("\n").replaceAll("15:32:10.000", "15:31:10.000"); const r = analyze(injectFault(text, "shuffle")); expect(r.orders[0].reconciliation).toBe("reconciled"); });
-  it.each([ ["55=AAPL|", "55=AAPL|55=MSFT|", "DUPLICATE_TAG"], ["38=100|", "38=-1|", "INVALID_DECIMAL"], ["38=100|", "38=1.0000001|", "INVALID_DECIMAL"], ["35=D|", "35=G|", "UNSUPPORTED_MESSAGE"], ["150=F|", "150=G|", "UNSUPPORTED_EXEC_TYPE"], ["55=AAPL|", "55=AAPL|453=1|", "UNSUPPORTED_GROUP"], ["52=20250115", "52=20250230", "INVALID_TIMESTAMP"], ["55=AAPL|", "oops|", "MALFORMED_FIELD"] ])("surfaces malformed/unsupported fields: %s → %s", (from, to, code) => { const r = analyze(lifecycle().join("\n").replace(from, to)); expect(r.findings.some(f => f.code === code)).toBe(true); expect(r.summary.unresolvedOrders).toBeGreaterThan(0); });
-  it("preserves ordered fields, unknown tags, and line references", () => { const r = analyze("\n" + lifecycle()[0] + "9999=untrusted data|", "upload.fix"); expect(r.sources[0]).toMatchObject({ line: 2, filename: "upload.fix", delimiter: "pipe-demo" }); expect(r.sources[0].fields.at(-1)).toEqual({ tag: "9999", value: "untrusted data" }); expect(r.findings.some(f => f.code === "UNKNOWN_TAG")).toBe(true); });
-  it("accepts SOH but never claims wire validation", () => { const r = analyze(fixture("clean").replaceAll("|", "\x01")); expect(r.summary.observedFilledQty).toBe("150"); expect(r.sources[0].delimiter).toBe("SOH"); expect(r.policy.wireValidation).toContain("NOT validated"); });
-  it("uses exact decimals beyond floating point safe monetary precision", () => { expect(format(decimal("999999999999.999999") + decimal("0.000001"))).toBe("1000000000000"); expect(format(decimal("0.1") + decimal("0.2"))).toBe("0.3"); });
-  it("reports overfills beyond the per-field input limit without crashing", () => { const text = lifecycle().join("\n").replaceAll("32=40|", "32=600000000000|").replaceAll("32=60|", "32=600000000000|"); const r = analyze(text); expect(r.summary.observedFilledQty).toBe("1200000000000"); expect(r.findings.some(f => f.code === "OVERFILL")).toBe(true); });
+  it("reconciles hand-calculated complete histories", () => {
+    const r = analyze(fixture("clean"));
+    expect(r.summary).toMatchObject({
+      observedFilledQty: "150",
+      uniqueFills: 4,
+      unresolvedOrders: 0,
+    });
+    expect(r.orders.find((o) => o.symbol === "AAPL")).toMatchObject({
+      filledQty: "100",
+      averagePrice: "190.6",
+      status: "Filled",
+    });
+    expect(r.orders.find((o) => o.symbol === "MSFT")).toMatchObject({
+      filledQty: "50",
+      averagePrice: "419.4",
+    });
+  });
+  it("does not count identical execution deliveries twice", () => {
+    const r = analyze(fixture("duplicate"));
+    expect(r.summary).toMatchObject({
+      observedFilledQty: "150",
+      uniqueFills: 4,
+      duplicateDeliveries: 1,
+      unresolvedOrders: 0,
+    });
+    expect(r.sources).toHaveLength(9);
+  });
+  it("recognizes retransmissions with new transport headers and canonical decimals", () => {
+    const lines = lifecycle();
+    const repeat = lines[2]
+      .replace("34=2|", "34=20|43=Y|122=20250115-15:31:10.000|")
+      .replace("52=20250115-15:31:10.000", "52=20250115-15:35:00.000")
+      .replace("32=40|", "32=40.000|");
+    const r = analyze([...lines, repeat].join("\n"));
+    expect(r.summary.duplicateDeliveries).toBe(1);
+    expect(r.orders[0].filledQty).toBe("100");
+  });
+  it("does not collapse different ExecIDs with equal fill sizes and prices", () => {
+    const r = analyze(
+      lifecycle(
+        "EQUAL",
+        "DEMO",
+        "AAPL",
+        "1",
+        "100",
+        "50",
+        "190",
+        "190",
+        "190",
+      ).join("\n"),
+    );
+    expect(r.summary.uniqueFills).toBe(2);
+    expect(r.orders[0].filledQty).toBe("100");
+    expect(r.summary.unresolvedOrders).toBe(0);
+  });
+  it("scopes order and execution IDs to session", () => {
+    const r = analyze(fixture("sessions"));
+    expect(r.summary).toMatchObject({
+      orders: 2,
+      observedFilledQty: "200",
+      duplicateDeliveries: 0,
+    });
+  });
+  it("produces byte-identical reports on deterministic replay", () => {
+    expect(JSON.stringify(analyze(fixture("conflict"), "test.fix"))).toBe(
+      JSON.stringify(analyze(fixture("conflict"), "test.fix")),
+    );
+  });
+  it.each(["missing-ack", "missing-request"])("keeps %s unresolved", (id) => {
+    const r = analyze(fixture(id));
+    expect(r.summary.unresolvedOrders).toBeGreaterThan(0);
+    expect(r.orders.every((o) => o.reconciliation === "unresolved")).toBe(true);
+  });
+  it("does not mark cancel requests as cancellations", () => {
+    const text = fixture("cancel");
+    const pending = analyze(text.split("\n").slice(0, -1).join("\n"));
+    expect(pending.orders[0].status).toContain("Partially filled");
+    expect(pending.findings.some((f) => f.code === "CANCEL_PENDING")).toBe(
+      true,
+    );
+    const confirmed = analyze(text);
+    expect(confirmed.orders[0]).toMatchObject({
+      status: "Canceled",
+      filledQty: "40",
+      reportedLeavesQty: "0",
+      reconciliation: "reconciled",
+    });
+  });
+  it("preserves conflicting cumulative evidence without inventing fills", () => {
+    const r = analyze(fixture("conflict"));
+    expect(r.orders[0]).toMatchObject({
+      filledQty: "100",
+      reportedCumQty: "110",
+      reconciliation: "unresolved",
+    });
+    expect(r.findings.some((f) => f.code === "CUM_QTY_MISMATCH")).toBe(true);
+  });
+  it("excludes all versions of a disputed ExecID rather than picking a winner", () => {
+    const lines = lifecycle();
+    const r = analyze(
+      [...lines, lines[2].replace("31=190|", "31=189|")].join("\n"),
+    );
+    expect(r.orders[0].filledQty).toBe("60");
+    expect(r.findings.some((f) => f.code === "CONFLICTING_EXECUTION")).toBe(
+      true,
+    );
+  });
+  it("keeps economic results after shuffled delivery when ordering evidence suffices", () => {
+    const a = analyze(fixture("clean")),
+      b = analyze(injectFault(fixture("clean"), "shuffle"));
+    expect(b.summary).toEqual(a.summary);
+    expect(
+      b.orders.map((o) => [o.id, o.filledQty, o.averagePrice, o.status]),
+    ).toEqual(
+      a.orders.map((o) => [o.id, o.filledQty, o.averagePrice, o.status]),
+    );
+    expect(b.orders.flatMap((o) => o.events.map((e) => e.sourceId))).toEqual(
+      a.orders.flatMap((o) => o.events.map((e) => e.sourceId)),
+    );
+  });
+  it("surfaces ambiguous cross-direction timing", () => {
+    const text = lifecycle()
+      .join("\n")
+      .replaceAll("15:30:00.020", "15:30:00.000");
+    expect(
+      analyze(text).findings.some((f) => f.code === "AMBIGUOUS_ORDERING"),
+    ).toBe(true);
+  });
+  it("surfaces reused sender sequence numbers", () => {
+    const r = analyze(lifecycle().join("\n").replace("34=3|", "34=2|"));
+    expect(r.findings.some((f) => f.code === "SEQUENCE_REUSE")).toBe(true);
+  });
+  it("uses same-sender sequence for equal timestamps", () => {
+    const text = lifecycle()
+      .join("\n")
+      .replaceAll("15:32:10.000", "15:31:10.000");
+    const r = analyze(injectFault(text, "shuffle"));
+    expect(r.orders[0].reconciliation).toBe("reconciled");
+  });
+  it.each([
+    ["55=AAPL|", "55=AAPL|55=MSFT|", "DUPLICATE_TAG"],
+    ["38=100|", "38=-1|", "INVALID_DECIMAL"],
+    ["38=100|", "38=1.0000001|", "INVALID_DECIMAL"],
+    ["35=D|", "35=G|", "UNSUPPORTED_MESSAGE"],
+    ["150=F|", "150=G|", "UNSUPPORTED_EXEC_TYPE"],
+    ["55=AAPL|", "55=AAPL|453=1|", "UNSUPPORTED_GROUP"],
+    ["52=20250115", "52=20250230", "INVALID_TIMESTAMP"],
+    ["55=AAPL|", "oops|", "MALFORMED_FIELD"],
+  ])("surfaces malformed/unsupported fields: %s → %s", (from, to, code) => {
+    const r = analyze(lifecycle().join("\n").replace(from, to));
+    expect(r.findings.some((f) => f.code === code)).toBe(true);
+    expect(r.summary.unresolvedOrders).toBeGreaterThan(0);
+  });
+  it("preserves ordered fields, unknown tags, and line references", () => {
+    const r = analyze(
+      "\n" + lifecycle()[0] + "9999=untrusted data|",
+      "upload.fix",
+    );
+    expect(r.sources[0]).toMatchObject({
+      line: 2,
+      filename: "upload.fix",
+      delimiter: "pipe-demo",
+    });
+    expect(r.sources[0].fields.at(-1)).toEqual({
+      tag: "9999",
+      value: "untrusted data",
+    });
+    expect(r.findings.some((f) => f.code === "UNKNOWN_TAG")).toBe(true);
+  });
+  it("accepts SOH but never claims wire validation", () => {
+    const r = analyze(fixture("clean").replaceAll("|", "\x01"));
+    expect(r.summary.observedFilledQty).toBe("150");
+    expect(r.sources[0].delimiter).toBe("SOH");
+    expect(r.policy.wireValidation).toContain("NOT validated");
+  });
+  it("uses exact decimals beyond floating point safe monetary precision", () => {
+    expect(format(decimal("999999999999.999999") + decimal("0.000001"))).toBe(
+      "1000000000000",
+    );
+    expect(format(decimal("0.1") + decimal("0.2"))).toBe("0.3");
+  });
+  it("reports overfills beyond the per-field input limit without crashing", () => {
+    const text = lifecycle()
+      .join("\n")
+      .replaceAll("32=40|", "32=600000000000|")
+      .replaceAll("32=60|", "32=600000000000|");
+    const r = analyze(text);
+    expect(r.summary.observedFilledQty).toBe("1200000000000");
+    expect(r.findings.some((f) => f.code === "OVERFILL")).toBe(true);
+  });
 });
