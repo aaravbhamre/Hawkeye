@@ -7,6 +7,11 @@ import { analyze } from "@/lib/fix/report";
 import { ApiError, checkLines, inputSchema } from "@/lib/server/http";
 import { lookupComparison, marketRequestSchema } from "@/lib/market/service";
 import { investigationSchema, type Investigation } from "./schema";
+import {
+  logInvestigatorFailure,
+  safeDiagnostic,
+  type FailureStage,
+} from "./diagnostics";
 export const investigateSchema = inputSchema.extend({
   text: z.string().min(1).max(60_000),
   question: z.string().trim().min(1).max(1200),
@@ -93,6 +98,7 @@ export async function investigate(input: z.infer<typeof investigateSchema>) {
       "Evidence exceeds the AI context limit; use a smaller capture.",
     );
   const gateway = createGateway({ apiKey: process.env.AI_GATEWAY_API_KEY });
+  let stage: FailureStage = "generation";
   try {
     const { output } = await generateText({
       model: gateway(process.env.AI_MODEL || "openai/gpt-4.1-mini"),
@@ -108,15 +114,50 @@ export async function investigate(input: z.infer<typeof investigateSchema>) {
         authoritativeEvidence: context,
       }),
     });
+    stage = "schema_validation";
+    const validated = investigationSchema.parse(output);
+    stage = "evidence_validation";
     return validateCitations(
-      investigationSchema.parse(output),
+      validated,
       new Set(report.sources.map((s) => s.id)),
     );
   } catch (error) {
+    // Output.object validates inside generateText, before it can return output.
+    if (
+      stage === "generation" &&
+      error instanceof Error &&
+      [
+        "AI_NoObjectGeneratedError",
+        "AI_TypeValidationError",
+        "AI_JSONParseError",
+        "AI_NoOutputGeneratedError",
+      ].includes(error.name)
+    )
+      stage = "schema_validation";
+    logInvestigatorFailure(error, stage);
     if (error instanceof ApiError) throw error;
+    const diagnostic = safeDiagnostic(error, stage);
+    if (
+      stage === "generation" &&
+      diagnostic.message === "Provider credit or billing unavailable"
+    )
+      throw new ApiError(
+        502,
+        "AI Gateway rejected generation because team billing or credits are unavailable. Check the API key's Vercel team AI Gateway billing settings. Analysis remains available.",
+      );
+    if (
+      stage === "generation" &&
+      diagnostic.message === "Gateway authentication failed"
+    )
+      throw new ApiError(
+        502,
+        "AI Gateway authentication failed. Check the server API key for this deployment environment. Analysis remains available.",
+      );
     throw new ApiError(
       502,
-      "Live AI is unavailable or returned an invalid response. Analysis and reports remain available; no canned answer was substituted.",
+      stage === "schema_validation"
+        ? "AI returned invalid structured output. No answer was accepted."
+        : "Live AI is unavailable due to a provider failure. Analysis and reports remain available; no canned answer was substituted.",
     );
   }
 }

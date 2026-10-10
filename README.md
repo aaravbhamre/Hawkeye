@@ -28,6 +28,12 @@ For external services, copy `.env.example` to `.env.local` and enter values loca
 
 Keep the investigator code private; trusted demo operators enter it in the dashboard. It is held in browser memory and sent over HTTPS only when asking AI. Generate it using a password manager or `openssl rand -hex 32`; set the same value in the server environment. Do not commit it or share it publicly. Restart development after changing environment variables.
 
+### Investigating AI failures
+
+Gateway model-catalog access does not prove inference access. The key's Vercel team must have eligible AI Gateway billing/credits; Gateway can reject free-credit inference with HTTP 403 until a credit card is added. Check **AI Gateway → Billing** for that team. Configuration in Codex does not configure Vercel: set server variables separately for Production and Preview, then redeploy.
+
+In Vercel runtime logs, look for `investigator_failure`. It includes `stage` (`generation`, `schema_validation`, or `evidence_validation`), SDK `errorType`, bounded `causeTypes`, `upstreamStatus`, and an allowlisted diagnostic message. Unrecognized messages are withheld. No SDK error objects, headers, request/response bodies, trading text, generated answers, or credentials are logged. A provider schema rejection is a generation failure; malformed generated output is a schema-validation failure. Evidence failures still reject unknown source IDs and uncited verified facts. These diagnostics do not establish that every accepted AI claim is supported.
+
 ## What works
 
 - FIX 4.4 D / 8 / F messages; narrow, documented semantics; pipe demo and SOH input.

@@ -20,6 +20,99 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe("AI plumbing (mocked model, not hallucination proof)", () => {
+  it.each([
+    {
+      name: "GatewayAuthenticationError",
+      message: "Invalid API key: secret",
+      statusCode: 401,
+      expected: /authentication failed/,
+      stage: "generation",
+    },
+    {
+      name: "GatewayInternalServerError",
+      message: "AI Gateway requires a credit card to access free credits",
+      statusCode: 403,
+      expected: /billing or credits/,
+      stage: "generation",
+    },
+    {
+      name: "AI_NoObjectGeneratedError",
+      message: "No object generated: secret output",
+      statusCode: undefined,
+      expected: /invalid structured output/,
+      stage: "schema_validation",
+    },
+  ])(
+    "classifies $name and logs sanitized diagnostics",
+    async ({ name, message, statusCode, expected, stage }) => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(generateText).mockRejectedValue(
+        Object.assign(new Error(message), { name, statusCode }),
+      );
+      const access = "test-only-access-token-32-characters-long";
+      vi.stubEnv("AI_GATEWAY_API_KEY", "test-only-key");
+      vi.stubEnv("INVESTIGATOR_ACCESS_TOKEN", access);
+      const response = await POST(
+        new Request("http://test/api/investigate", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${access}`,
+          },
+          body: JSON.stringify(input),
+        }),
+      );
+      expect(response.status).toBe(502);
+      expect((await response.json()).error).toMatch(expected);
+      expect(JSON.parse(log.mock.calls[0][0])).toMatchObject({
+        stage,
+        errorType: name,
+        upstreamStatus: statusCode ?? null,
+      });
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+    },
+  );
+  it.each([
+    {
+      output: { sections: [] },
+      stage: "schema_validation",
+      expected: /invalid structured output/,
+    },
+    {
+      output: {
+        sections: [
+          {
+            category: "Verified facts",
+            claims: [{ text: "A trade.", sourceIds: ["invented"] }],
+          },
+        ],
+      },
+      stage: "evidence_validation",
+      expected: /nonexistent source evidence/,
+    },
+    {
+      output: {
+        sections: [
+          {
+            category: "Verified facts",
+            claims: [{ text: "A trade.", sourceIds: [] }],
+          },
+        ],
+      },
+      stage: "evidence_validation",
+      expected: /without evidence references/,
+    },
+  ])(
+    "keeps $stage validation enforced",
+    async ({ output, stage, expected }) => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(generateText).mockResolvedValue({ output } as never);
+      await expect(investigate(investigateSchema.parse(input))).rejects.toThrow(
+        expected,
+      );
+      expect(JSON.parse(log.mock.calls[0][0]).stage).toBe(stage);
+    },
+  );
   it("rejects nonexistent citations", () => {
     expect(() =>
       validateCitations(
