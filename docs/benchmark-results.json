@@ -1,0 +1,86 @@
+{
+  "measuredAt": "2026-10-10T19:04:51.887Z",
+  "scope": "Local deterministic analysis only; excludes HTTP, browser, market-data and AI latency. Not a deployed benchmark.",
+  "command": "npm run benchmark",
+  "runtime": "v24.19.0",
+  "platform": "linux x64",
+  "cpu": "AMD EPYC 9V45 96-Core Processor",
+  "availableCpu": 4,
+  "hostMemoryBytes": 35743784960,
+  "cgroup": {
+    "cpuMax": "400000 100000",
+    "memoryMax": "34359738368"
+  },
+  "seed": 2025,
+  "warmups": 2,
+  "runs": 5,
+  "workload": "Each order: request, acknowledgment, 40-share partial fill, 60-share final fill. 10% of orders add one repeated fill delivery. Two sessions and two symbols; seeded global shuffle. Prices are synthetic. Every iteration asserts known totals.",
+  "results": [
+    {
+      "orders": 100,
+      "messages": 410,
+      "fills": 200,
+      "quantity": "10000",
+      "duplicates": 10,
+      "inputBytes": 73037,
+      "inputDigest": "10f6d8dd55e548d8cb896812ac8fcb4206ebbd9fb17cdae4e52cd60d8c3d7430",
+      "runMs": [
+        10.257,
+        8.685,
+        7.985,
+        12.143,
+        13.323
+      ],
+      "medianMs": 10.257,
+      "p95Ms": 13.323,
+      "messagesPerSecond": 39972,
+      "rssBeforeBytes": 64004096,
+      "rssAfterBytes": 96796672,
+      "processPeakRssBytes": 96796672
+    },
+    {
+      "orders": 1000,
+      "messages": 4100,
+      "fills": 2000,
+      "quantity": "100000",
+      "duplicates": 100,
+      "inputBytes": 744651,
+      "inputDigest": "5500e996419328d211c2bc7920038c25c3b8933f3305790f7a79d4f966bd729d",
+      "runMs": [
+        101.072,
+        90.375,
+        97.448,
+        85.716,
+        82.033
+      ],
+      "medianMs": 90.375,
+      "p95Ms": 101.072,
+      "messagesPerSecond": 45367,
+      "rssBeforeBytes": 100798464,
+      "rssAfterBytes": 268337152,
+      "processPeakRssBytes": 268337152
+    },
+    {
+      "orders": 5000,
+      "messages": 20500,
+      "fills": 10000,
+      "quantity": "500000",
+      "duplicates": 500,
+      "inputBytes": 3781885,
+      "inputDigest": "f97058ebfb568ea2e6bba928597081a86918ebf76fbd205cf7bd375b3926a0c1",
+      "runMs": [
+        505.499,
+        439.113,
+        439.302,
+        436.333,
+        449.439
+      ],
+      "medianMs": 439.302,
+      "p95Ms": 505.499,
+      "messagesPerSecond": 46665,
+      "rssBeforeBytes": 272662528,
+      "rssAfterBytes": 584818688,
+      "processPeakRssBytes": 584818688
+    }
+  ]
+}
