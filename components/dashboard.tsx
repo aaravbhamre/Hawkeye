@@ -27,6 +27,8 @@ import { injectFault, samples, type Fault } from "@/lib/fixtures";
 import type { Finding, Report } from "@/lib/fix/types";
 import type { Comparison } from "@/lib/market/types";
 import type { Investigation } from "@/lib/ai/schema";
+import HoldingsOverview from "./holdings-overview";
+import type { HoldingsResponse } from "@/lib/holdings/types";
 type Chat = { question: string; answer: Investigation };
 const questions = [
   "Explain this order’s lifecycle.",
@@ -71,6 +73,13 @@ export default function Dashboard() {
   const [question, setQuestion] = useState(questions[1]);
   const [token, setToken] = useState("");
   const [chats, setChats] = useState<Chat[]>([]);
+  const [positions, setPositions] = useState<HoldingsResponse | null>(null);
+  const [priceProvider, setPriceProvider] = useState<"fixture" | "alpaca">(
+    "fixture",
+  );
+  const [zeroOpening, setZeroOpening] = useState(false);
+  const [holdingsBusy, setHoldingsBusy] = useState(false);
+  const holdingsEpoch = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const order =
     report?.orders.find((o) => o.id === selected) ?? report?.orders[0];
@@ -82,6 +91,10 @@ export default function Dashboard() {
   const stale = snapshot !== text;
   const ready = !!report && !stale && !busy;
   async function analyze(next = text, name = filename) {
+    holdingsEpoch.current++;
+    setHoldingsBusy(false);
+    setPositions(null);
+    setZeroOpening(false);
     setBusy("Analyzing");
     setError("");
     try {
@@ -96,6 +109,14 @@ export default function Dashboard() {
       setFillId("");
       setComparisons([]);
       setChats([]);
+      const positions = await post<HoldingsResponse>("/api/holdings", {
+        text: next,
+        filename: name,
+        zeroOpeningPositions: false,
+        provider: priceProvider,
+        refresh: priceProvider === "fixture",
+      });
+      setPositions(positions);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed.");
     } finally {
@@ -174,12 +195,38 @@ export default function Dashboard() {
       setBusy("");
     }
   }
+  async function refreshHoldings(zero = zeroOpening) {
+    const epoch = ++holdingsEpoch.current;
+    setHoldingsBusy(true);
+    setError("");
+    try {
+      const result = await post<HoldingsResponse>("/api/holdings", {
+        text: snapshot,
+        filename,
+        zeroOpeningPositions: zero,
+        provider: priceProvider,
+        refresh: true,
+      });
+      if (epoch === holdingsEpoch.current) setPositions(result);
+    } catch (e) {
+      if (epoch === holdingsEpoch.current) {
+        setPositions(null);
+        setError(e instanceof Error ? e.message : "Holdings unavailable.");
+      }
+    } finally {
+      if (epoch === holdingsEpoch.current) setHoldingsBusy(false);
+    }
+  }
   function exportReport() {
     const url = URL.createObjectURL(
       new Blob(
         [
           JSON.stringify(
-            { analysis: report, marketComparisons: comparisons },
+            {
+              analysis: report,
+              marketComparisons: comparisons,
+              holdings: positions,
+            },
             null,
             2,
           ),
@@ -232,6 +279,11 @@ export default function Dashboard() {
             <strong>FIX Detective</strong>
           </span>
         </Link>
+        <nav className="workspace-nav" aria-label="Workspace navigation">
+          <a href="#holdings">Overview</a>
+          <a href="#session-input">Session analysis</a>
+          <a href="#ai-investigator">AI investigator</a>
+        </nav>
         <span className="simulation">
           <span /> Simulated trading only
         </span>
@@ -242,19 +294,16 @@ export default function Dashboard() {
       <main className="workspace">
         <section className="page-heading">
           <div>
-            <p className="eyebrow">
-              TRADING OPERATIONS / INVESTIGATION WORKSPACE
-            </p>
-            <h1>Every execution. Every piece of evidence.</h1>
+            <p className="eyebrow">WORKSPACE / SIMULATED EQUITIES</p>
+            <h1>Your market. Under the lens.</h1>
             <p className="subtitle">
-              Reconstruct the session, test the unexpected, and follow the
-              facts.
+              Holdings, executions, and the evidence behind every move.
             </p>
           </div>
           <button
             className="button secondary"
             onClick={exportReport}
-            disabled={!ready}
+            disabled={!ready || holdingsBusy}
           >
             <ArrowDownToLine size={16} /> Export JSON
           </button>
@@ -267,6 +316,49 @@ export default function Dashboard() {
             </button>
           </div>
         )}
+        <HoldingsOverview
+          data={stale ? null : positions}
+          ready={ready}
+          busy={holdingsBusy || !!busy}
+          provider={priceProvider}
+          zero={zeroOpening}
+          onProvider={(value) => {
+            holdingsEpoch.current++;
+            setPriceProvider(value);
+            setPositions((previous) =>
+              previous
+                ? {
+                    ...previous,
+                    retrievedAt: null,
+                    priceError: undefined,
+                    holdings: previous.holdings.map((holding) => ({
+                      ...holding,
+                      market: null,
+                      marketValue: null,
+                      unrealizedPnl: null,
+                      unrealizedPercent: null,
+                    })),
+                    summary: {
+                      complete: false,
+                      marketValue: null,
+                      unrealizedPnl: null,
+                      unrealizedPercent: null,
+                    },
+                  }
+                : null,
+            );
+            setHoldingsBusy(false);
+          }}
+          onZero={(value) => {
+            setZeroOpening(value);
+            setPositions(null);
+            void refreshHoldings(value);
+          }}
+          onRefresh={() => {
+            void refreshHoldings();
+          }}
+          onEvidence={evidence}
+        />
         <section className="metrics" aria-label="Analysis summary">
           {[
             {
@@ -312,7 +404,7 @@ export default function Dashboard() {
         </section>
         <div className="dashboard-grid">
           <div className="main-column">
-            <section className="panel">
+            <section className="panel" id="session-input">
               <div className="panel-heading">
                 <h2>
                   <FileText size={18} /> Session input
@@ -752,7 +844,7 @@ export default function Dashboard() {
                   ))}
               </div>
             </section>
-            <section className="panel ai-panel">
+            <section className="panel ai-panel" id="ai-investigator">
               <div className="panel-heading">
                 <h2>
                   <Sparkles size={18} /> AI investigator

@@ -39,7 +39,8 @@ In Vercel runtime logs, look for `investigator_failure`. It includes `stage` (`g
 - FIX 4.4 D / 8 / F messages; narrow, documented semantics; pipe demo and SOH input.
 - Session-scoped correlation, execution deduplication, exact fixed-point quantities, and explicit reconciliation failures.
 - Real `/api/analyze`, `/api/market`, and `/api/investigate` route handlers.
-- Responsive dashboard, samples, file upload, fault injection, order timeline, exact source fields, and JSON export.
+- Dark responsive trading workspace, samples, file upload, fault injection, order timeline, exact source fields, and JSON export.
+- Holdings Overview with deterministic weighted-average inventory accounting, timestamped fixture or Alpaca IEX snapshots, price-history charts, and explicit missing-opening-position handling. See [holdings methodology and demo](docs/holdings.md).
 - Explicit synthetic fixture prices or external Alpaca IEX minute bars. No automatic provider fallback.
 - Vercel AI SDK + Gateway structured explanations; recomputed evidence, bounded requests, protected paid access, and citation-ID validation.
 - Core functionality survives missing credentials and upstream failures. Unavailable AI is labeled as unavailable, never replaced with canned output.

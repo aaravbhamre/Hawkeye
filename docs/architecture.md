@@ -7,6 +7,10 @@ flowchart LR
   UI[Dashboard / source input] -->|POST log text| Analyze[/api/analyze]
   Analyze --> Parser[Tokenize → validate → normalize]
   Parser --> Engine[Correlate → deduplicate → reduce → report]
+  UI --> Holdings[/api/holdings]
+  Holdings --> Engine
+  Holdings --> Inventory[Weighted-average inventory / fixed-point valuation]
+  Holdings --> Snapshots[Separate latest snapshots and daily bars]
   UI --> Market[/api/market]
   Market --> Engine
   Market --> Adapters[Fixture or Alpaca historical adapter]
@@ -43,3 +47,5 @@ The paid endpoint fails closed unless both the Gateway key and a private operato
 ## Failure semantics
 
 Malformed/unsupported messages remain visible. Invalid records conservatively make all order reconciliation unresolved because their correlation keys may be unreliable. Disputed ExecID versions are excluded rather than arbitrarily selecting one. Upstream market/AI errors do not alter the report. No automatic synthetic fallback or latest-price substitution occurs.
+
+The Holdings Overview uses `lib/holdings` for deterministic inventory calculations and `lib/market/latest.ts` for bounded latest snapshots, independently of historical execution comparisons. JSON exports include the opening-position declaration, quantities, prices and timestamps, provider/coverage limitations, and separate retrieval time. See [accounting policy](holdings.md).

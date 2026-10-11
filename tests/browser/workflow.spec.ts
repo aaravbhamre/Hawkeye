@@ -52,13 +52,11 @@ test("faults and edited uploads remain real input; mobile fits viewport", async 
   await expect(
     page.getByText("No anomalies in supported evidence"),
   ).toBeVisible();
-  await page
-    .locator('input[type="file"]')
-    .setInputFiles({
-      name: "uploaded.fix",
-      mimeType: "text/plain",
-      buffer: Buffer.from(samples[0].text),
-    });
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "uploaded.fix",
+    mimeType: "text/plain",
+    buffer: Buffer.from(samples[0].text),
+  });
   await page.getByRole("button", { name: "Analyze", exact: true }).click();
   await expect(
     page.getByText("uploaded.fix:1", { exact: true }).last(),
@@ -105,4 +103,58 @@ test("API rejects forged market evidence and unavailable AI remains transparent"
     },
   });
   expect(market.status()).toBe(400);
+});
+
+test("holdings use backend accounting, explicit opening assumptions and timestamped fixture prices", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await page
+    .getByLabel("Sample session", { exact: true })
+    .selectOption("holdings");
+  await expect(
+    page.getByRole("button", { name: "View AAPL holding" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("portfolio-value")).toHaveText("—");
+  await page
+    .getByRole("checkbox", { name: /complete history with zero opening/ })
+    .check();
+  await expect(page.getByTestId("portfolio-value")).toHaveText("$35,375.00");
+  await expect(page.locator(".portfolio-return")).toContainText("Gain $110.00");
+  await expect(page.locator(".chart-quote")).toContainText(
+    "FIXTURE · NOT LIVE",
+  );
+  await expect(page.locator(".position-stat-row")).toContainText("75");
+  const refresh = page.waitForResponse(
+    (r) => r.url().endsWith("/api/holdings") && r.request().method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "Refresh prices", exact: true })
+    .click();
+  expect((await refresh).status()).toBe(200);
+  await expect(page.locator(".price-disclosure")).toContainText("January 2025");
+  await page.getByRole("button", { name: "View MSFT holding" }).click();
+  await expect(page.locator(".position-stat-row")).toContainText(
+    "Loss -$220.00",
+  );
+  await page.screenshot({
+    path: "test-results/holdings-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/holdings-mobile.png",
+    fullPage: true,
+  });
+  await page.getByLabel("FIX messages").fill("changed input");
+  await expect(
+    page.getByRole("button", { name: "Refresh prices", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByTestId("portfolio-value")).toHaveText("—");
 });

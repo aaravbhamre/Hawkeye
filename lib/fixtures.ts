@@ -1,3 +1,4 @@
+import { decimal, format } from "./fix/decimal";
 // Synthetic messages and prices, authored for this application; no real orders or proprietary logs.
 const header = (
   type: string,
@@ -25,9 +26,9 @@ export function lifecycle(
     header("8", seq, "15:30:00.020", client) +
       `11=${id}|37=B-${id}|17=${id}-ACK|150=0|39=0|55=${symbol}|54=${side}|38=${qty}|14=0|151=${qty}|6=0|60=20250115-15:30:00.020|`,
     header("8", seq + 1, "15:31:10.000", client) +
-      `11=${id}|37=B-${id}|17=${id}-F1|150=F|39=1|55=${symbol}|54=${side}|38=${qty}|32=${first}|31=${price1}|14=${first}|151=${Number(qty) - Number(first)}|6=${price1}|60=20250115-15:31:10.000|`,
+      `11=${id}|37=B-${id}|17=${id}-F1|150=F|39=1|55=${symbol}|54=${side}|38=${qty}|32=${first}|31=${price1}|14=${first}|151=${format(decimal(qty) - decimal(first))}|6=${price1}|60=20250115-15:31:10.000|`,
     header("8", seq + 2, "15:32:10.000", client) +
-      `11=${id}|37=B-${id}|17=${id}-F2|150=F|39=2|55=${symbol}|54=${side}|38=${qty}|32=${Number(qty) - Number(first)}|31=${price2}|14=${qty}|151=0|6=${avg}|60=20250115-15:32:10.000|`,
+      `11=${id}|37=B-${id}|17=${id}-F2|150=F|39=2|55=${symbol}|54=${side}|38=${qty}|32=${format(decimal(qty) - decimal(first))}|31=${price2}|14=${qty}|151=0|6=${avg}|60=20250115-15:32:10.000|`,
   ];
 }
 export type Fault = "duplicate" | "missing-ack" | "shuffle";
@@ -120,5 +121,43 @@ export const samples = [
     text: cancel,
     expected:
       "40 observed shares; canceled only after the confirmation; 0 reported leaves.",
+  },
+  {
+    id: "holdings",
+    name: "Holdings demo · buys + partial sale",
+    text: [
+      ...lifecycle(),
+      ...lifecycle(
+        "ORD-1002",
+        "DEMO",
+        "MSFT",
+        "1",
+        "50",
+        "20",
+        "420",
+        "419",
+        "419.4",
+        10,
+      ),
+      ...lifecycle(
+        "SELL-1003",
+        "DEMO",
+        "AAPL",
+        "2",
+        "25",
+        "10",
+        "200",
+        "200",
+        "200",
+        20,
+      ).map((line) =>
+        line
+          .replaceAll("15:30", "15:33")
+          .replaceAll("15:31", "15:34")
+          .replaceAll("15:32", "15:35"),
+      ),
+    ].join("\n"),
+    expected:
+      "175 observed executed shares. With declared zero openings: AAPL 75 @ 190.6; MSFT 50 @ 419.4. Fixture valuation $35,375; unrealized gain $110.",
   },
 ];
